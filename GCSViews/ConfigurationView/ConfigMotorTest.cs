@@ -88,6 +88,7 @@ namespace MissionPlanner.GCSViews.ConfigurationView
             {
                 motormax = 4;
 
+<<<<<<< HEAD
                 motors = Motor.build_motors(MAVLink.MAV_TYPE.TRICOPTER, (int)(float)MainV2.comPort.MAV.param["FRAME"]);
             }
             else if (MainV2.comPort.MAV.aptype == MAVLink.MAV_TYPE.QUADROTOR)
@@ -107,6 +108,27 @@ namespace MissionPlanner.GCSViews.ConfigurationView
                 motormax = 8;
 
                 motors = Motor.build_motors(MAVLink.MAV_TYPE.OCTOROTOR, (int)(float)MainV2.comPort.MAV.param["FRAME"]);
+=======
+                motors = Motor.build_motors(MAVLink.MAV_TYPE.TRICOPTER, (int)(double)MainV2.comPort.MAV.param["FRAME"]);
+            }
+            else if (MainV2.comPort.MAV.aptype == MAVLink.MAV_TYPE.QUADROTOR)
+            {
+                motormax = 4;
+
+                motors = Motor.build_motors(MAVLink.MAV_TYPE.QUADROTOR, (int)(double)MainV2.comPort.MAV.param["FRAME"]);
+            }
+            else if (MainV2.comPort.MAV.aptype == MAVLink.MAV_TYPE.HEXAROTOR)
+            {
+                motormax = 6;
+
+                motors = Motor.build_motors(MAVLink.MAV_TYPE.HEXAROTOR, (int)(double)MainV2.comPort.MAV.param["FRAME"]);
+            }
+            else if (MainV2.comPort.MAV.aptype == MAVLink.MAV_TYPE.OCTOROTOR)
+            {
+                motormax = 8;
+
+                motors = Motor.build_motors(MAVLink.MAV_TYPE.OCTOROTOR, (int)(double)MainV2.comPort.MAV.param["FRAME"]);
+>>>>>>> diydrones/master
             }
             else if (MainV2.comPort.MAV.aptype == MAVLink.MAV_TYPE.HELICOPTER)
             {

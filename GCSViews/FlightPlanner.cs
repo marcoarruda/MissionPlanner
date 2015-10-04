@@ -3197,6 +3197,13 @@ namespace MissionPlanner.GCSViews
                         Commands.Rows[selectedrow].Cells[Alt.Index].Value = TXT_DefaultAlt.Text;
                 }
 
+                // default to take shot
+                if (((ComboBox)sender).Text == "DO_DIGICAM_CONTROL")
+                {
+                    if (Commands.Rows[selectedrow].Cells[Lat.Index].Value != null && Commands.Rows[selectedrow].Cells[Lat.Index].Value.ToString() == "0")
+                        Commands.Rows[selectedrow].Cells[Lat.Index].Value = (1).ToString();
+                }
+
                 for (int i = 0; i < Commands.ColumnCount; i++)
                 {
                     DataGridViewCell tcell = Commands.Rows[selectedrow].Cells[i];
@@ -4429,20 +4436,16 @@ namespace MissionPlanner.GCSViews
             {
                 DialogResult res = CustomMessageBox.Show("Ready ripp at Zoom = " + (int)MainMap.Zoom + " ?", "GMap.NET", MessageBoxButtons.YesNo);
 
-                for (int i = 1; i <= MainMap.MaxZoom; i++)
+                if (res == DialogResult.Yes)
                 {
-                    if (res == DialogResult.Yes)
+                    for (int i = 1; i <= MainMap.Zoom; i++)
                     {
                         TilePrefetcher obj = new TilePrefetcher();
                         obj.ShowCompleteMessage = false;
                         obj.Start(area, i, MainMap.MapProvider, 100, 0);
-                    }
-                    else if (res == DialogResult.No)
-                    {
-                    }
-                    else if (res == DialogResult.Cancel)
-                    {
-                        break;
+
+                        if (obj.UserAborted)
+                            break;
                     }
                 }
             }

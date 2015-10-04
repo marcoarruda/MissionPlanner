@@ -193,4 +193,7 @@
   <data name="backstageViewPageParachute.Text" xml:space="preserve">
     <value>降落伞</value>
   </data>
+  <data name="backstageViewPageESC.Text" xml:space="preserve">
+    <value>电调校准</value>
+  </data>
 </root>
