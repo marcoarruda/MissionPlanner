@@ -110,6 +110,12 @@ namespace MissionPlanner.Controls
                 File.Copy(Application.StartupPath + Path.DirectorySeparatorChar + "JSBSim.exe", destfile);
             }
 
+            if (markeroverlay.Markers.Count == 0)
+            {
+                CustomMessageBox.Show(Strings.Invalid_home_location);
+                return;
+            }
+
             StartSITL(exepath, "jsbsim", BuildHomeLocation(markeroverlay.Markers[0].Position, (int)NUM_heading.Value), @" --autotest-dir """ + Application.StartupPath.Replace('\\','/') + @"""", 1);
         }
 
@@ -168,6 +174,12 @@ namespace MissionPlanner.Controls
 
         private void StartSITL(string exepath, string model, string homelocation, string extraargs = "", int speedup = 1)
         {
+            if (String.IsNullOrEmpty(homelocation))
+            {
+                CustomMessageBox.Show(Strings.Invalid_home_location, Strings.ERROR);
+                return;
+            }
+
             string simdir = sitldirectory + model + Path.DirectorySeparatorChar;
 
             Directory.CreateDirectory(simdir);
@@ -193,13 +205,20 @@ namespace MissionPlanner.Controls
 
             var client = new Comms.TcpSerial();
 
-            client.client = new TcpClient("127.0.0.1", 5760);
+            try
+            {
+                client.client = new TcpClient("127.0.0.1", 5760);
 
-            MainV2.comPort.BaseStream = client;
+                MainV2.comPort.BaseStream = client;
 
-            SITLSEND = new UdpClient("127.0.0.1", 5501);
+                SITLSEND = new UdpClient("127.0.0.1", 5501);
 
-            MainV2.instance.doConnect(MainV2.comPort, "preset","5760");
+                MainV2.instance.doConnect(MainV2.comPort, "preset", "5760");
+            }
+            catch
+            {
+                CustomMessageBox.Show(Strings.Failed_to_connect_to_SITL_instance,Strings.ERROR);
+            }
 
             this.Close();
         }

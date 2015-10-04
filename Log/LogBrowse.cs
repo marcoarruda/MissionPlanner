@@ -11,6 +11,7 @@ using log4net;
 using ZedGraph; // Graphs
 using System.Xml;
 using System.Collections;
+using System.Text.RegularExpressions;
 using MissionPlanner.Controls;
 using GMap.NET;
 using GMap.NET.WindowsForms;
@@ -23,7 +24,6 @@ namespace MissionPlanner.Log
         private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         DataTable m_dtCSV = new DataTable();
 
-        //List<DFLog.DFItem> logdata;
         CollectionBuffer<string> logdata;
         Hashtable logdatafilter = new Hashtable();
         Hashtable seenmessagetypes = new Hashtable();
@@ -39,6 +39,10 @@ namespace MissionPlanner.Log
 		GMapOverlay markeroverlay;
 		LineObj m_cursorLine = null;
         Hashtable dataModifierHash = new Hashtable();
+
+        DFLog dflog = new DFLog();
+
+        private bool readmavgraphsxml_runonce = false;
 
         class DataModifer
         {
@@ -129,7 +133,7 @@ namespace MissionPlanner.Log
 
             public static string GetNodeName(string parent, string child)
             {
-                return parent + ":" + child;
+                return parent + "." + child;
             }
                        
         }
@@ -194,15 +198,6 @@ namespace MissionPlanner.Log
                 new displayitem(){ type= "MAG2", field ="MagZ"},}
             },
 
-                              new displaylist() { Name = "dcm ekf crosscheck", items = new displayitem[] { 
-                new displayitem(){ type= "ATT", field ="roll"},
-                new displayitem(){ type= "AHRS2", field ="roll"},
-                new displayitem(){ type= "ATT", field ="yaw",left = false},
-                new displayitem(){ type= "AHRS2", field ="yaw",left = false},
-                    new displayitem(){ type= "ATT", field ="pitch"},
-                new displayitem(){ type= "AHRS2", field ="pitch"},}
-            },
-
             new displaylist() { Name = "copter loiter", items = new displayitem[] { 
                 new displayitem(){ type= "NTUN", field ="DVelX"},
                 new displayitem(){ type= "NTUN", field ="VelX"},
@@ -215,6 +210,15 @@ namespace MissionPlanner.Log
                 new displayitem(){ type= "CTUN", field ="DAlt"},
                 new displayitem(){ type= "CTUN", field ="Alt"},
                 new displayitem(){ type= "GPS", field ="Alt"},}
+            },
+
+                             new displaylist() { Name = "ekf VEL tune", items = new displayitem[] { 
+                new displayitem(){ type= "EKF3", field ="IVN"},
+                new displayitem(){ type= "EKF3", field ="IPN"},
+                new displayitem(){ type= "EKF3", field ="IVE"},
+                new displayitem(){ type= "EKF3", field ="IPE"},
+                new displayitem(){ type= "EKF3", field ="IVD"},
+                new displayitem(){ type= "EKF3", field ="IPD"},}
             },
         };
 
@@ -263,20 +267,121 @@ namespace MissionPlanner.Log
             mapoverlay = new GMapOverlay("overlay");
             markeroverlay = new GMapOverlay("markers");
 
-            myGMAP1.MapProvider = GCSViews.FlightData.mymap.MapProvider;
+            if (GCSViews.FlightData.mymap != null)
+                myGMAP1.MapProvider = GCSViews.FlightData.mymap.MapProvider;
 
             myGMAP1.Overlays.Add(mapoverlay);
             myGMAP1.Overlays.Add(markeroverlay);
 
-            //CMB_preselect.DisplayMember = "Name";
-            CMB_preselect.DataSource = graphs;
-
             //chk_time.Checked = true;
+
+            dataGridView1.RowUnshared += dataGridView1_RowUnshared;
 
             MissionPlanner.Utilities.Tracking.AddPage(this.GetType().ToString(), this.Text);
         }
 
-        private void Form1_Load(object sender, EventArgs e)
+        public class graphitem
+        {
+            public string name;
+            public List<string> expressions = new List<string>();
+            public string description;
+        }
+
+        private void readmavgraphsxml()
+        {
+            if (readmavgraphsxml_runonce)
+                return;
+
+            readmavgraphsxml_runonce = true;
+
+            List<graphitem> items = new List<graphitem>();
+
+            using (XmlReader reader = XmlReader.Create("mavgraphs.xml"))
+            {
+                while (reader.Read())
+                {
+                    if (reader.ReadToFollowing("graph"))
+                    {
+                        graphitem newGraphitem = new graphitem();
+
+                        for (int a = 0; a < reader.AttributeCount; a++)
+                        {
+                            reader.MoveToAttribute(a);
+                            if (reader.Name.ToLower() == "name")
+                            {
+                                newGraphitem.name = reader.Value;
+                            }
+                        }
+
+                        reader.MoveToElement();
+
+                        XmlReader inner = reader.ReadSubtree();
+
+                        while (inner.Read())
+                        {
+                            if (inner.IsStartElement())
+                            {
+                                if (inner.Name.ToLower() == "expression")
+                                    newGraphitem.expressions.Add(inner.ReadString().Trim());
+                                else if (inner.Name.ToLower() == "description")
+                                    newGraphitem.description = inner.ReadString().Trim();
+                            }
+                        }
+
+                        processGraphItem(newGraphitem);
+
+                        items.Add(newGraphitem);
+                    }
+                }
+            }
+        }
+
+        void processGraphItem(graphitem graphitem)
+        {
+            List<displayitem> list = new List<displayitem>();
+
+            foreach (var expression in graphitem.expressions)
+            {
+                var items = expression.Split(new char[] {' ', '\t', '\n'}, StringSplitOptions.RemoveEmptyEntries);
+
+                foreach (var item in items)
+                {
+                    var matchs = Regex.Matches(item.Trim(), @"^([A-z0-9_]+)\.([A-z0-9_]+)[:2]*$");
+
+                    // there is a item we dont understand/abandon it
+                    if (matchs.Count == 0)
+                        break;
+
+                    foreach (Match match in matchs)
+                    {
+                        var temp = new displayitem();
+                        // right axis
+                        if (item.EndsWith(":2"))
+                            temp.left = false;
+
+                        temp.type = match.Groups[1].Value.ToString();
+                        temp.field = match.Groups[2].Value.ToString();
+
+                        list.Add(temp);
+                    }                    
+                }
+            }
+
+            var dispitem = new displaylist()
+            {
+                Name = graphitem.name,
+                items = list.ToArray()
+            };
+
+            graphs.Add(dispitem);
+        }
+
+        void dataGridView1_RowUnshared(object sender, DataGridViewRowEventArgs e)
+        {
+            
+        }
+
+        private void LogBrowse_Load(object sender, EventArgs e)
         {
             mapoverlay.Clear();
             markeroverlay.Clear();
@@ -284,8 +389,6 @@ namespace MissionPlanner.Log
             logdatafilter.Clear();
 
             m_dtCSV.Clear();
-
-            DFLog.Clear();
 
             if (logdata != null)
                 logdata.Clear();
@@ -312,19 +415,7 @@ namespace MissionPlanner.Log
                     {
                         Stream stream;
 
-                        if (openFileDialog1.FileName.ToLower().EndsWith(".bin"))
-                        {
-                            log.Info("before " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
-                            string tempfile = Path.GetTempFileName();
-
-                            BinaryLog.ConvertBin(openFileDialog1.FileName, tempfile);
-
-                            stream = File.Open(tempfile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        }
-                        else
-                        {
-                            stream = File.Open(openFileDialog1.FileName, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        }
+                        stream = File.Open(openFileDialog1.FileName, FileMode.Open, FileAccess.Read, FileShare.Read);
 
                         log.Info("before read " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
 
@@ -332,7 +423,7 @@ namespace MissionPlanner.Log
 
                         log.Info("got log lines " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
 
-                        //logdata = DFLog.ReadLog(stream);
+                        //logdata = dflog.ReadLog(stream);
 
                         this.Text = "Log Browser - " + Path.GetFileName(openFileDialog1.FileName);
                         log.Info("about to create DataTable " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
@@ -340,14 +431,14 @@ namespace MissionPlanner.Log
 
                         log.Info("process to datagrid " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
 
-                        bool largelog = logdata.Count > 500000 ? true : false;
+                        bool largelog = true; // logdata.Count > 500000 ? true : false;
 
                         int b = 0;
 
                         foreach (var item2 in logdata)
                         {
                             b++;
-                            var item = DFLog.GetDFItemFromLine(item2, b);
+                            var item = dflog.GetDFItemFromLine(item2, b);
 
                             if (item.items != null)
                             {
@@ -407,11 +498,13 @@ namespace MissionPlanner.Log
                             dataGridView1.RowCount = 0;
                             dataGridView1.RowCount = logdata.Count;
                             dataGridView1.ColumnCount = m_dtCSV.Columns.Count;
+
+                            log.Info("datagrid size set " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
                         }
 
 
 
-                        dataGridView1.Columns[0].Visible = false;
+                        //dataGridView1.Columns[0].Visible = false;
 
                         log.Info("datasource set " + (GC.GetTotalMemory(false) / 1024.0 / 1024.0));
 
@@ -444,12 +537,19 @@ namespace MissionPlanner.Log
 
                     ResetTreeView(seenmessagetypes);
 
-                    if (DFLog.logformat.Count == 0)
+                    if (dflog.logformat.Count == 0)
                     {
                         CustomMessageBox.Show(Strings.WarningLogBrowseFMTMissing, Strings.ERROR);
                         this.Close();
                         return;
                     }
+
+                    // update preselection graphs
+                    readmavgraphsxml();
+
+                    //CMB_preselect.DisplayMember = "Name";
+                    CMB_preselect.DataSource = null;
+                    CMB_preselect.DataSource = graphs;
                 }
                 else
                 {
@@ -480,7 +580,7 @@ namespace MissionPlanner.Log
             treeView1.Nodes.Clear();
             dataModifierHash = new Hashtable();
 
-            var sorted = new SortedList(DFLog.logformat);
+            var sorted = new SortedList(dflog.logformat);
 
             foreach (DFLog.Label item in sorted.Values)
             {
@@ -519,10 +619,10 @@ namespace MissionPlanner.Log
                 string option = dataGridView1[typecoloum, e.RowIndex].EditedFormattedValue.ToString();
 
                 // new self describing log
-                if (DFLog.logformat.ContainsKey(option))
+                if (dflog.logformat.ContainsKey(option))
                 {
                     int a = typecoloum + 1;
-                    foreach (string name in DFLog.logformat[option].FieldNames)
+                    foreach (string name in dflog.logformat[option].FieldNames)
                     {
                         dataGridView1.Columns[a].HeaderText = name;
                         a++;
@@ -694,7 +794,7 @@ namespace MissionPlanner.Log
                 return;
             }
 
-            if (!DFLog.logformat.ContainsKey(type))
+            if (!dflog.logformat.ContainsKey(type))
             {
                 CustomMessageBox.Show(Strings.NoFMTMessage + type, Strings.ERROR);
                 return;
@@ -706,23 +806,30 @@ namespace MissionPlanner.Log
                 return;
             }
 
-            if (DFLog.logformat[type].FieldNames.Length <= (col - typecoloum - 1))
+            if (dflog.logformat[type].FieldNames.Length <= (col - typecoloum - 1))
             {
                 CustomMessageBox.Show(Strings.InvalidField, Strings.ERROR);
                 return;
             }
 
-            string fieldname = DFLog.logformat[type].FieldNames[col - typecoloum - 1];
+            string fieldname = dflog.logformat[type].FieldNames[col - typecoloum - 1];
 
             GraphItem(type, fieldname, left);
         }
 
-        void GraphItem(string type, string fieldname, bool left = true)
+        void GraphItem(string type, string fieldname, bool left = true, bool displayerror = true)
         {
             double a = 0; // row counter
             int error = 0;
             DataModifer dataModifier = new DataModifer();
             string nodeName = DataModifer.GetNodeName(type, fieldname);
+
+            foreach (var curve in zg1.GraphPane.CurveList)
+            {
+                // its already on the graph, abort
+                if (curve.Label.Text.StartsWith(nodeName))
+                    return;
+            }
 
             if (dataModifierHash.ContainsKey(nodeName))
             {
@@ -745,13 +852,14 @@ namespace MissionPlanner.Log
                 }
             }
 
-            if (!DFLog.logformat.ContainsKey(type))
+            if (!dflog.logformat.ContainsKey(type))
             {
-                CustomMessageBox.Show(Strings.NoFMTMessage + type + " - " + fieldname, Strings.ERROR);
+                if (displayerror)
+                    CustomMessageBox.Show(Strings.NoFMTMessage + type + " - " + fieldname, Strings.ERROR);
                 return;
             }
 
-            int col = DFLog.FindMessageOffset(type, fieldname);
+            int col = dflog.FindMessageOffset(type, fieldname);
 
             // field does not exist
             if (col == -1)
@@ -763,26 +871,18 @@ namespace MissionPlanner.Log
 
             string header = fieldname;
 
-            int b = 0;
+            double b = 0;
             DateTime screenupdate = DateTime.MinValue;
 
-            foreach (var item2 in logdata)
+            foreach (var item in logdata.GetEnumeratorType(type))
             {
-                b++;
+                b = item.lineno;
 
                 if (screenupdate.Second != DateTime.Now.Second)
                 {
                     Console.Write(b + " of " + logdata.Count + "     \r");
                     screenupdate = DateTime.Now;
                 }
-
-                if (!item2.StartsWith(type))
-                {
-                    a++;
-                    continue;
-                }
-
-                var item = DFLog.GetDFItemFromLine(item2, b);
 
                 if (item.msgtype == type)
                 {
@@ -806,7 +906,7 @@ namespace MissionPlanner.Log
 
                         if (chk_time.Checked)
                         {
-                            var e = new DataGridViewCellValueEventArgs(1, (int) a);
+                            var e = new DataGridViewCellValueEventArgs(1, (int) b);
                             dataGridView1_CellValueNeeded(dataGridView1, e);
 
                             XDate time = new XDate(DateTime.Parse(e.Value.ToString()));
@@ -815,7 +915,7 @@ namespace MissionPlanner.Log
                         }
                         else
                         {
-                            list1.Add(a, value);
+                            list1.Add(b, value);
                         }
                     }
                     catch { error++; log.Info("Bad Data : " + type + " " + col + " " + a); if (error >= 500) { CustomMessageBox.Show("There is to much bad data - failing"); break; } }
@@ -830,7 +930,7 @@ namespace MissionPlanner.Log
 
             LineItem myCurve;
 
-            myCurve = zg1.GraphPane.AddCurve(header, list1, colours[zg1.GraphPane.CurveList.Count % colours.Length], SymbolType.None);
+            myCurve = zg1.GraphPane.AddCurve(type+"."+header, list1, colours[zg1.GraphPane.CurveList.Count % colours.Length], SymbolType.None);
 
             leftorrightaxis(left, myCurve);
 
@@ -874,34 +974,26 @@ namespace MissionPlanner.Log
 
             ErrorCache.Clear();
 
-            int b = 0;
+            double b = 0;
 
             //ErrorCache.Add(new TextObj("", -500, 0));
 
-            foreach (var item2 in logdata)
+            foreach (var item in logdata.GetEnumeratorType("ERR"))
             {
-                b++;
-
-                if (!item2.StartsWith("ERR"))
-                {
-                    a++;
-                    continue;
-                }
-
-                var item = DFLog.GetDFItemFromLine(item2, b);
+                b = item.lineno;
 
                 if (item.msgtype == "ERR")
                 {
-                    if (!DFLog.logformat.ContainsKey("ERR"))
+                    if (!dflog.logformat.ContainsKey("ERR"))
                         return;
 
-                    int index = DFLog.FindMessageOffset("ERR", "Subsys");
+                    int index = dflog.FindMessageOffset("ERR", "Subsys");
                     if (index == -1)
                     {
                         continue;
                     }
 
-                    int index2 = DFLog.FindMessageOffset("ERR", "ECode");
+                    int index2 = dflog.FindMessageOffset("ERR", "ECode");
                     if (index2 == -1)
                     {
                         continue;
@@ -910,20 +1002,20 @@ namespace MissionPlanner.Log
                     if (chk_time.Checked)
                     {
                         XDate date = new XDate(item.time);
-                        a = date.XLDate;
+                        b = date.XLDate;
                     }
 
                     string mode = "Err: " + ((DFLog.error_subsystem)int.Parse(item.items[index].ToString())) + "-" + item.items[index2].ToString().Trim();
                     if (top)
                     {
-                        var temp = new TextObj(mode, a, zg1.GraphPane.YAxis.Scale.Max, CoordType.AxisXYScale, AlignH.Left, AlignV.Top);
+                        var temp = new TextObj(mode, b, zg1.GraphPane.YAxis.Scale.Max, CoordType.AxisXYScale, AlignH.Left, AlignV.Top);
                         temp.FontSpec.Fill.Color = Color.Red;
                         ErrorCache.Add(temp);
                         zg1.GraphPane.GraphObjList.Add(temp);
                     }
                     else
                     {
-                        var temp = new TextObj(mode, a, zg1.GraphPane.YAxis.Scale.Max, CoordType.AxisXYScale, AlignH.Left, AlignV.Bottom);
+                        var temp = new TextObj(mode, b, zg1.GraphPane.YAxis.Scale.Max, CoordType.AxisXYScale, AlignH.Left, AlignV.Bottom);
                         temp.FontSpec.Fill.Color = Color.Red;
                         ErrorCache.Add(temp);
                         zg1.GraphPane.GraphObjList.Add(temp);
@@ -953,26 +1045,16 @@ namespace MissionPlanner.Log
 
             ModeCache.Clear();
 
-            int b = 0;
-
-            foreach (var item2 in logdata)
+            foreach (var item in logdata.GetEnumeratorType("MODE"))
             {
-                b++;
-
-                if (!item2.StartsWith("MODE"))
-                {
-                    a++;
-                    continue;
-                }
-
-                var item = DFLog.GetDFItemFromLine(item2, b);
+                a = item.lineno;
 
                 if (item.msgtype == "MODE")
                 {
-                    if (!DFLog.logformat.ContainsKey("MODE"))
+                    if (!dflog.logformat.ContainsKey("MODE"))
                         return;
 
-                    int index = DFLog.FindMessageOffset("MODE", "Mode");
+                    int index = dflog.FindMessageOffset("MODE", "Mode");
                     if (index == -1)
                     {
                         continue;
@@ -1027,27 +1109,19 @@ namespace MissionPlanner.Log
                 return;
             }
 
-            int b = 0;
+            double b = 0;
 
-            foreach (var item2 in logdata)
+            foreach (var item in logdata.GetEnumeratorType("GPS"))
             {
-                b++;
-
-                if (!item2.StartsWith("GPS"))
-                {
-                    a++;
-                    continue;
-                }
-
-                var item = DFLog.GetDFItemFromLine(item2, b);
+                b = item.lineno;
 
                 if (item.msgtype == "GPS")
                 {
-                    if (!DFLog.logformat.ContainsKey("GPS"))
+                    if (!dflog.logformat.ContainsKey("GPS"))
                         break;
                     
-                    int index = DFLog.FindMessageOffset("GPS", "TimeMS");
-                    int index2 = DFLog.FindMessageOffset("GPS", "TimeUS");
+                    int index = dflog.FindMessageOffset("GPS", "TimeMS");
+                    int index2 = dflog.FindMessageOffset("GPS", "TimeUS");
                     if (index == -1)
                     {
                         if (index2 == -1)
@@ -1081,7 +1155,7 @@ namespace MissionPlanner.Log
 
                         if (workingtime.Minute != lastdrawn.Minute)
                         {
-                            var temp = new TextObj(span.TotalMinutes.ToString("0") + " min", a, zg1.GraphPane.YAxis.Scale.Max, CoordType.AxisXYScale, AlignH.Left, AlignV.Top);
+                            var temp = new TextObj(span.TotalMinutes.ToString("0") + " min", b, zg1.GraphPane.YAxis.Scale.Max, CoordType.AxisXYScale, AlignH.Left, AlignV.Top);
                             TimeCache.Add(temp);
                             zg1.GraphPane.GraphObjList.Add(temp);                            
                             lastdrawn = workingtime;
@@ -1121,22 +1195,22 @@ namespace MissionPlanner.Log
                 //zg1.GraphPane.GraphObjList.Clear();
 				
 				//check if GPS data are available
-				if (!DFLog.logformat.ContainsKey("GPS"))
+				if (!dflog.logformat.ContainsKey("GPS"))
                     return;
 
-                int latindex = DFLog.FindMessageOffset("GPS", "Lat");
+                int latindex = dflog.FindMessageOffset("GPS", "Lat");
                 if (latindex == -1)
                 {
                     return;
                 }
 
-                int lngindex2 = DFLog.FindMessageOffset("GPS", "Lng");
+                int lngindex2 = dflog.FindMessageOffset("GPS", "Lng");
                 if (lngindex2 == -1)
                 {
                     return;
                 }
 
-                int statusindex3 = DFLog.FindMessageOffset("GPS", "Status");
+                int statusindex3 = dflog.FindMessageOffset("GPS", "Status");
                 if (statusindex3 == -1)
                 {
                     return;
@@ -1146,29 +1220,20 @@ namespace MissionPlanner.Log
                 int poslngindex = -1;
                 int posaltindex = -1;
                 // check for POS message
-                if (DFLog.logformat.ContainsKey("POS"))
+                if (dflog.logformat.ContainsKey("POS"))
                 {
-                    poslatindex = DFLog.FindMessageOffset("POS", "Lat");
-                    poslngindex = DFLog.FindMessageOffset("POS", "Lng");
-                    posaltindex = DFLog.FindMessageOffset("POS", "Alt");
+                    poslatindex = dflog.FindMessageOffset("POS", "Lat");
+                    poslngindex = dflog.FindMessageOffset("POS", "Lng");
+                    posaltindex = dflog.FindMessageOffset("POS", "Alt");
                 }
 
                 int i = 0;
                 int firstpoint = 0;
                 int firstpointpos = 0;
-                int b = 0;
 
-                foreach (var item2 in logdata)
+                foreach (var item in logdata.GetEnumeratorType(new string[] {"GPS","POS","GPS2"}))
                 {
-                    b++;
-
-                    if (!item2.StartsWith("GPS") && !item2.StartsWith("POS"))
-                    {
-                        i++;
-                        continue;
-                    }
-
-                    var item = DFLog.GetDFItemFromLine(item2, b);
+                    i = item.lineno;
 
                     if (item.msgtype == "GPS")
                     {
@@ -1191,7 +1256,7 @@ namespace MissionPlanner.Log
                                 lri.samples.AddRange(samplelist);
                                 
                                 route_part.Tag = lri;
-                                route_part.IsHitTestVisible = true;
+                                route_part.IsHitTestVisible = false;
                                 mapoverlay.Routes.Add(route_part);
                                 rtcnt++;
 
@@ -1226,7 +1291,7 @@ namespace MissionPlanner.Log
                                 lri.samples.AddRange(samplelistpos);
 
                                 route_part.Tag = lri;
-                                route_part.IsHitTestVisible = true;
+                                route_part.IsHitTestVisible = false;
                                 mapoverlay.Routes.Add(route_part);
                                 rtcnt++;
 
@@ -1244,13 +1309,14 @@ namespace MissionPlanner.Log
 
                 GMapRoute route = new GMapRoute(routelist, "route_" + rtcnt);
                 route.Stroke = new Pen(Color.FromArgb(127, Color.Blue), 2);
+                route.IsHitTestVisible = false;
 
                 LogRouteInfo lri2 = new LogRouteInfo();
                 lri2.firstpoint = firstpoint;
                 lri2.lastpoint = i;
                 lri2.samples.AddRange(samplelist);
                 route.Tag = lri2;
-                route.IsHitTestVisible = true;
+                route.IsHitTestVisible = false;
                 mapoverlay.Routes.Add(route);
                 rtcnt++;
                 myGMAP1.ZoomAndCenterRoute(route);
@@ -1265,22 +1331,22 @@ namespace MissionPlanner.Log
         {
             if (item.msgtype == "GPS")
             {
-                if (!DFLog.logformat.ContainsKey("GPS"))
+                if (!dflog.logformat.ContainsKey("GPS"))
                     return null;
 
-                int index = DFLog.FindMessageOffset("GPS", "Lat");
+                int index = dflog.FindMessageOffset("GPS", "Lat");
                 if (index == -1)
                 {
                     return null;
                 }
 
-                int index2 = DFLog.FindMessageOffset("GPS", "Lng");
+                int index2 = dflog.FindMessageOffset("GPS", "Lng");
                 if (index2 == -1)
                 {
                     return null;
                 }
 
-                int index3 = DFLog.FindMessageOffset("GPS", "Status");
+                int index3 = dflog.FindMessageOffset("GPS", "Status");
                 if (index3 == -1)
                 {
                     return null;
@@ -1307,16 +1373,16 @@ namespace MissionPlanner.Log
 
             if (item.msgtype == "POS")
             {
-                if (!DFLog.logformat.ContainsKey("POS"))
+                if (!dflog.logformat.ContainsKey("POS"))
                     return null;
 
-                int index = DFLog.FindMessageOffset("POS", "Lat");
+                int index = dflog.FindMessageOffset("POS", "Lat");
                 if (index == -1)
                 {
                     return null;
                 }
 
-                int index2 = DFLog.FindMessageOffset("POS", "Lng");
+                int index2 = dflog.FindMessageOffset("POS", "Lng");
                 if (index2 == -1)
                 {
                     return null;
@@ -1330,6 +1396,9 @@ namespace MissionPlanner.Log
                     PointLatLng pnt = new PointLatLng() { };
                     pnt.Lat = double.Parse(lat, System.Globalization.CultureInfo.InvariantCulture);
                     pnt.Lng = double.Parse(lng, System.Globalization.CultureInfo.InvariantCulture);
+
+                    if (Math.Abs(pnt.Lat) > 90 || Math.Abs(pnt.Lng) > 180)
+                        return null;
 
                     return pnt;
                 }
@@ -1382,7 +1451,7 @@ namespace MissionPlanner.Log
             // clear existing lists
             zg1.GraphPane.CurveList.Clear();
             // reload
-            Form1_Load(sender, e);
+            LogBrowse_Load(sender, e);
         }
 
         private void dataGridView1_ColumnHeaderMouseClick(object sender, DataGridViewCellMouseEventArgs e)
@@ -1396,7 +1465,7 @@ namespace MissionPlanner.Log
             foreach (var item2 in logdata)
             {
                 b++;
-                var item = DFLog.GetDFItemFromLine(item2, b);
+                var item = dflog.GetDFItemFromLine(item2, b);
 
                 if (item.msgtype == null)
                     continue;
@@ -1429,7 +1498,7 @@ namespace MissionPlanner.Log
                 foreach (var item2 in logdata)
                 {
                     b++;
-                    var item = DFLog.GetDFItemFromLine(item2, b);
+                    var item = dflog.GetDFItemFromLine(item2, b);
 
                     if (item.msgtype == opt.SelectedItem) 
                     {
@@ -1491,6 +1560,8 @@ namespace MissionPlanner.Log
         /// <param name="e"></param>
         private void dataGridView1_RowPostPaint(object sender, DataGridViewRowPostPaintEventArgs e)
         {
+            return;
+            // try and force all rows to sharedrows
             try
             {
                 var grid = sender as DataGridView;
@@ -1640,7 +1711,7 @@ namespace MissionPlanner.Log
 
                     foreach (var item in zg1.GraphPane.CurveList)
                     {
-                        if (item.Label.Text.StartsWith(e.Node.Text))
+                        if (item.Label.Text.StartsWith(e.Node.Parent.Text + "." + e.Node.Text))
                         {
                             removeitems.Add(item);
                             //break;
@@ -1659,7 +1730,7 @@ namespace MissionPlanner.Log
         {
             displaylist selectlist = (displaylist)CMB_preselect.SelectedValue;
 
-            if (selectlist.items == null)
+            if (selectlist == null || selectlist.items == null)
                 return;
 
             BUT_cleargraph_Click(null, null);
@@ -1668,7 +1739,7 @@ namespace MissionPlanner.Log
             {
                 try
                 {
-                    GraphItem(item.type, item.field, item.left);
+                    GraphItem(item.type, item.field, item.left, false);
                 }
                 catch { }
             }
@@ -1703,6 +1774,8 @@ namespace MissionPlanner.Log
 
         private void LogBrowse_FormClosed(object sender, FormClosedEventArgs e)
         {
+            if (logdata != null)
+                logdata.Clear();
             logdata = null;
             m_dtCSV = null;
             dataGridView1.DataSource = null;
@@ -1716,7 +1789,7 @@ namespace MissionPlanner.Log
             {
                 var item2 = logdata[e.RowIndex];
 
-                var item = DFLog.GetDFItemFromLine(item2, e.RowIndex);
+                var item = dflog.GetDFItemFromLine(item2, e.RowIndex);
 
                 if (logdatafilter.Count > 0)
                 {
@@ -1787,10 +1860,10 @@ namespace MissionPlanner.Log
             bool ret = false;
             millis = 0;
 
-            if (!DFLog.logformat.ContainsKey("IMU"))
+            if (!dflog.logformat.ContainsKey("IMU"))
                 return ret;
 
-            int index = DFLog.FindMessageOffset("IMU", "TimeMS");
+            int index = dflog.FindMessageOffset("IMU", "TimeMS");
             if (index < 0)
                 return ret;
 
@@ -1833,12 +1906,12 @@ namespace MissionPlanner.Log
             bool ret = false;
             pt = new PointLatLng();
 
-            if (!DFLog.logformat.ContainsKey("GPS"))
+            if (!dflog.logformat.ContainsKey("GPS"))
                 return ret;
 
-            int index = DFLog.FindMessageOffset("GPS", "Lat");
-            int index2 = DFLog.FindMessageOffset("GPS", "Lng");
-            int index3 = DFLog.FindMessageOffset("GPS", "Status");
+            int index = dflog.FindMessageOffset("GPS", "Lat");
+            int index2 = dflog.FindMessageOffset("GPS", "Lng");
+            int index3 = dflog.FindMessageOffset("GPS", "Status");
 
             if ((index < 0) || (index2 < 0) || (index3 < 0))
                 return ret;
@@ -1863,9 +1936,8 @@ namespace MissionPlanner.Log
                         {
                             try
                             {
-                                if (double.Parse(datarow[index3 + 2].ToString(), System.Globalization.CultureInfo.InvariantCulture) != 3)
+                                if (double.Parse(datarow[index3 + 2].ToString(), System.Globalization.CultureInfo.InvariantCulture) < 3)
                                 {
-
                                     continue;
                                 }
 

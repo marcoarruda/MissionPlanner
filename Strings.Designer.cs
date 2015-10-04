@@ -232,6 +232,15 @@ namespace MissionPlanner {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Change Throttle.
+        /// </summary>
+        public static string ChangeThrottle {
+            get {
+                return ResourceManager.GetString("ChangeThrottle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Checking .
         /// </summary>
         public static string Checking {
@@ -337,6 +346,15 @@ namespace MissionPlanner {
         public static string Continue {
             get {
                 return ResourceManager.GetString("Continue", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Converting bin to log.
+        /// </summary>
+        public static string Converting_bin_to_log {
+            get {
+                return ResourceManager.GetString("Converting_bin_to_log", resourceCulture);
             }
         }
         
@@ -605,6 +623,15 @@ namespace MissionPlanner {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Failed to connect to SITL instance.
+        /// </summary>
+        public static string Failed_to_connect_to_SITL_instance {
+            get {
+                return ResourceManager.GetString("Failed_to_connect_to_SITL_instance", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Failed download.
         /// </summary>
         public static string FailedDownload {
@@ -754,6 +781,15 @@ namespace MissionPlanner {
         public static string Gotparam {
             get {
                 return ResourceManager.GetString("Gotparam", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Invalid home location.
+        /// </summary>
+        public static string Invalid_home_location {
+            get {
+                return ResourceManager.GetString("Invalid_home_location", resourceCulture);
             }
         }
         
@@ -1303,6 +1339,15 @@ namespace MissionPlanner {
         public static string UpdateFound {
             get {
                 return ResourceManager.GetString("UpdateFound", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to No update available..
+        /// </summary>
+        public static string UpdateNotFound {
+            get {
+                return ResourceManager.GetString("UpdateNotFound", resourceCulture);
             }
         }
         

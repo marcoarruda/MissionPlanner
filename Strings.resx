@@ -588,4 +588,18 @@ Please contact your hardware vendor about signing your hardware.</value>
   <data name="terrain_alt_variance" xml:space="preserve">
     <value>terrain alt variance</value>
   </data>
+  <data name="ChangeThrottle" xml:space="preserve">
+    <value>Change Throttle</value>
+  </data>
+  <data name="Invalid_home_location" xml:space="preserve">
+    <value>Invalid home location</value>
+  </data>
+  <data name="Converting_bin_to_log" xml:space="preserve">
+    <value>Converting bin to log</value>
+  </data>  <data name="UpdateNotFound" xml:space="preserve">
+    <value>No update available.</value>
+  </data>
+  <data name="Failed_to_connect_to_SITL_instance" xml:space="preserve">
+    <value>Failed to connect to SITL instance</value>
+  </data>
 </root>
